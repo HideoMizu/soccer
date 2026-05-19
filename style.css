@@ -8,7 +8,7 @@ h1{font-size:18px;margin:0 0 2px} h2{font-size:17px;margin:12px 0 8px} h3{font-s
 .small{font-size:12px;color:var(--muted);line-height:1.35}.danger{color:var(--bad)}.ok{color:var(--ok)}.warn{color:var(--warn)}.blue{color:var(--blue)}.hidden{display:none!important}
 .card{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:12px;margin:9px 0;box-shadow:0 1px 4px rgba(16,24,40,.04)}
 .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.row .fit{flex:0 0 auto}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.grid4{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 label{display:block;font-size:12px;color:var(--muted);margin:9px 0 4px}
 input,select,textarea,button{font:inherit}
 input,select,textarea{width:100%;border:1px solid #d0d5dd;border-radius:12px;background:#fff;padding:10px 11px;font-size:16px}
@@ -26,11 +26,8 @@ button:active{transform:scale(.99)}
 .badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#eef2f6;font-size:12px;color:#344054;margin:2px}
 .badge.ok{background:#ecfdf3;color:#027a48}.badge.bad{background:#fef3f2;color:#b42318}.badge.warn{background:#fffaeb;color:#b54708}.badge.blue{background:#eff8ff;color:#175cd3}
 .listItem{border-top:1px solid var(--line);padding:9px 0}.listItem:first-child{border-top:0}
-.checks{display:flex;gap:7px;flex-wrap:wrap;margin-top:6px}.check{display:inline-flex;align-items:center;gap:6px;border:1px solid #d0d5dd;border-radius:999px;padding:8px 10px;background:#fff}
-.check input{width:auto}
 .notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:14px;padding:9px;font-size:13px;line-height:1.35}
 .kv{display:grid;grid-template-columns:64px 1fr;gap:4px;font-size:13px;line-height:1.38}.kv div:nth-child(odd){color:var(--muted)}
-.result{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center}
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:8px 0}
 .tabs button{font-size:11.5px;padding:8px 2px;background:#fff;color:#344054;border:1px solid #d0d5dd}
 .tabs button.active{background:#101828;color:#fff}
@@ -43,8 +40,20 @@ details.gameDetail:first-child{border-top:0}
 details.gameDetail>summary{list-style:none;cursor:pointer}
 details.gameDetail>summary::-webkit-details-marker{display:none}
 .slideBox{max-height:0;overflow:hidden;transition:max-height .28s ease,opacity .28s ease;opacity:0}
-details[open] .slideBox{max-height:620px;opacity:1}
+details[open] .slideBox{max-height:720px;opacity:1}
 .deficit{border-color:#fecdca;background:#fffafa}
 .enough{border-color:#abefc6}
 .timeRow{display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:center}
 .dayHead{font-size:12px;color:#344054;background:#eef2f6;border-radius:999px;padding:4px 9px;display:inline-block;margin:4px 0}
+.memberGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:8px}
+.memberChip{display:flex;align-items:center;gap:4px;border:1px solid #d0d5dd;border-radius:10px;padding:6px 6px;background:#fff;font-size:12px;line-height:1.1;min-height:34px}
+.memberChip input{width:14px;height:14px;margin:0}
+.statusGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:8px}
+.namePanel{border:1px solid #d0d5dd;border-radius:12px;padding:8px 5px;text-align:center;font-size:12px;font-weight:700;min-height:42px;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.namePanel.yes{background:#ecfdf3;border-color:#abefc6;color:#027a48}
+.namePanel.no{background:#fef3f2;border-color:#fecdca;color:#b42318}
+.namePanel.hold{background:#fffaeb;border-color:#fedf89;color:#b54708}
+.namePanel.un{background:#f8fafc;color:#475467}
+.adminMenu{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.adminMenu button{min-height:62px}
+.successMsg{background:#ecfdf3;color:#027a48;border:1px solid #abefc6;border-radius:12px;padding:8px;margin:8px 0;font-size:13px}
