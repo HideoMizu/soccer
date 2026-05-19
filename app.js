@@ -1,10 +1,44 @@
-const KEY="soccerTeamManager.v2";
-const OLDKEY="soccerTeamManager.v1";
+const KEY="soccerTeamManager.v3";
+const OLDKEYS=["soccerTeamManager.v2","soccerTeamManager.v1"];
+
+const I18N={
+ ja:{
+  title:"小学校サッカーチーム管理", login:"ログイン", team:"チーム名", password:"パスワード", enter:"入る",
+  check:"試合確認", answer:"試合招集回答", admin:"管理者向け",
+  gameReg:"試合登録", call:"試合招集", members:"メンバ管理", templates:"テンプレ管理",
+  selectName:"名前を選択", all:"全員", noGames:"未来日の試合はありません。",
+  date:"日付", time:"時間", place:"場所", min:"最低人数", called:"招集", people:"名", status:"参加状況",
+  items:"持ち物", notes:"注意事項", back:"一覧に戻る", yes:"参加", hold:"保留", no:"不参加",
+  unanswered:"未回答", insufficient:"人数未達", enough:"人数OK", add:"追加", delete:"削除", save:"保存",
+  gameName:"試合名", uniform:"ユニフォーム", start:"開始", end:"終了", locationTpl:"試合場所",
+  noTasks:"未回答・保留の招集はありません。", joined:"参加表明した試合予定", detail:"詳細",
+  noticeMsg:"お知らせメッセージ作成", gradeAdd:"学年を追加", memberSelect:"メンバ選択",
+  sampleReset:"サンプルに戻す", logout:"ログアウト", dataJson:"データをJSON表示"
+ },
+ en:{
+  title:"Elementary Soccer Team Manager", login:"Login", team:"Team", password:"Password", enter:"Enter",
+  check:"Games", answer:"Call-up Reply", admin:"Admin",
+  gameReg:"Game Entry", call:"Call-up", members:"Members", templates:"Templates",
+  selectName:"Select name", all:"All", noGames:"No upcoming games.",
+  date:"Date", time:"Time", place:"Place", min:"Min players", called:"Called", people:"", status:"Status",
+  items:"Items", notes:"Notes", back:"Back", yes:"Join", hold:"Hold", no:"Absent",
+  unanswered:"No reply", insufficient:"Not enough", enough:"Enough", add:"Add", delete:"Delete", save:"Save",
+  gameName:"Game name", uniform:"Uniform", start:"Start", end:"End", locationTpl:"Location",
+  noTasks:"No pending or hold call-ups.", joined:"Games you will join", detail:"Detail",
+  noticeMsg:"Create reminder", gradeAdd:"Add grade", memberSelect:"Select members",
+  sampleReset:"Reset sample", logout:"Logout", dataJson:"Show JSON data"
+ }
+};
 
 const sampleData={
   team:{name:"BBS",password:"ABC"},
   masters:{
     uniforms:["赤","青"],
+    locations:[
+      {id:"loc1",name:"第一小学校グラウンド"},
+      {id:"loc2",name:"中央公園"},
+      {id:"loc3",name:"河川敷サッカー場"}
+    ],
     itemTemplates:[
       {id:"it1",name:"基本セット",text:"ボール、すね当て、靴下"},
       {id:"it2",name:"夏セット",text:"ボール、すね当て、靴下、水筒、タオル、帽子"}
@@ -20,8 +54,8 @@ const sampleData={
     {id:"m3",nickname:"三郎",entranceYear:2025}
   ],
   games:[
-    {id:"g1",date:"2026-06-06",place:"第一小学校グラウンド",name:"練習試合 vs A小",time:"12:00-17:00",uniforms:["赤"],items:"ボール、すね当て、靴下",notes:"1. 移動時はユニフォーム（上）が見えないように何か着るか、現地で着替えてください。"},
-    {id:"g2",date:"2026-06-14",place:"中央公園",name:"交流戦",time:"09:00-12:00",uniforms:["赤","青"],items:"ボール、すね当て、靴下、水筒",notes:"集合は8:40です。"}
+    {id:"g1",date:"2026-06-06",place:"第一小学校グラウンド",name:"練習試合 vs A小",startTime:"12:00",endTime:"17:00",minPlayers:8,uniforms:["赤"],items:"ボール、すね当て、靴下",notes:"1. 移動時はユニフォーム（上）が見えないように何か着るか、現地で着替えてください。"},
+    {id:"g2",date:"2026-06-14",place:"中央公園",name:"交流戦",startTime:"09:00",endTime:"12:00",minPlayers:8,uniforms:["赤","青"],items:"ボール、すね当て、靴下、水筒",notes:"集合は8:40です。"}
   ],
   calls:[
     {gameId:"g1",memberIds:["m1","m2"]},
@@ -34,27 +68,38 @@ const sampleData={
   ]
 };
 
+let lang=localStorage.getItem("soccer.lang")||"ja";
 let db=load();
 let session=localStorage.getItem("soccer.loggedIn")==="1";
 let page="check";
 let adminTab="games";
-let selectedGameId=null;
 let currentMemberId=localStorage.getItem("soccer.currentMemberId")||"";
+let callSelection=new Set();
 
+function t(k){return (I18N[lang]&&I18N[lang][k])||I18N.ja[k]||k}
 function normalize(d){
   d.masters=d.masters||{};
+  if(!d.masters.uniforms)d.masters.uniforms=["赤","青"];
+  if(!d.masters.locations)d.masters.locations=[...new Set((d.games||[]).map(g=>g.place).filter(Boolean))].map((name,i)=>({id:"loc"+(i+1),name}));
+  if(!d.masters.locations.length)d.masters.locations=structuredClone(sampleData.masters.locations);
   if(!d.masters.itemTemplates)d.masters.itemTemplates=[{id:"it1",name:"基本セット",text:d.masters.itemTemplate||"ボール、すね当て、靴下"}];
   if(!d.masters.noteTemplates)d.masters.noteTemplates=[{id:"nt1",name:"基本注意",text:d.masters.noteTemplate||"1. 移動時はユニフォーム（上）が見えないように何か着るか、現地で着替えてください。"}];
   d.responses=d.responses||d.votes||[];
+  d.games=(d.games||[]).map(g=>{
+    if(!g.startTime&&g.time){const a=String(g.time).split("-");g.startTime=a[0]||"";g.endTime=a[1]||""}
+    if(!g.minPlayers)g.minPlayers=8;
+    return g;
+  });
   d.responses=d.responses.map(r=>{
-    const m=d.members.find(x=>x.nickname===r.name)||d.members.find(x=>x.id===r.memberId);
+    const m=(d.members||[]).find(x=>x.nickname===r.name)||(d.members||[]).find(x=>x.id===r.memberId);
     return {...r,memberId:r.memberId||(m?m.id:""),answer:r.answer||"保留"};
   });
   delete d.votes;
   return d;
 }
 function load(){
-  const raw=localStorage.getItem(KEY)||localStorage.getItem(OLDKEY);
+  let raw=localStorage.getItem(KEY);
+  if(!raw){for(const k of OLDKEYS){raw=localStorage.getItem(k); if(raw)break;}}
   if(!raw){localStorage.setItem(KEY,JSON.stringify(sampleData));return structuredClone(sampleData);}
   try{const d=normalize(JSON.parse(raw));localStorage.setItem(KEY,JSON.stringify(d));return d}catch(e){return structuredClone(sampleData)}
 }
@@ -63,98 +108,118 @@ function uid(p){return p+Date.now().toString(36)+Math.random().toString(36).slic
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));}
 function today(){return new Date().toISOString().slice(0,10)}
 function isFutureOrToday(d){return !d || d>=today()}
+function daysTo(d){const a=new Date(today()+"T00:00:00"), b=new Date(d+"T00:00:00");return Math.round((b-a)/86400000)}
+function dayText(d){const n=daysTo(d); if(n===0)return lang==="ja"?"今日":"Today"; if(n===1)return lang==="ja"?"明日":"Tomorrow"; return lang==="ja"?`${n}日後`:`in ${n} days`}
 function schoolYear(){const d=new Date();return d.getMonth()+1>=4?d.getFullYear():d.getFullYear()-1;}
 function grade(entranceYear){return Math.max(1,schoolYear()-Number(entranceYear)+1);}
-function gameLabel(g){return `${g.date} ${g.name}`;}
+function timeText(g){return `${g.startTime||""}-${g.endTime||""}`.replace(/^-|-$/g,"")}
+function gameLabel(g){return `${g.date} ${g.name}`}
 function $(id){return document.getElementById(id);}
 function callFor(gid){return db.calls.find(c=>c.gameId===gid)||{gameId:gid,memberIds:[]};}
 function resFor(gid,mid){return db.responses.find(r=>r.gameId===gid&&r.memberId===mid);}
 function calledMembers(gid){const ids=callFor(gid).memberIds;return ids.map(id=>db.members.find(m=>m.id===id)).filter(Boolean);}
+function yesCount(gid){return db.responses.filter(r=>r.gameId===gid&&r.answer==="参加").length}
 function render(){session?renderApp():renderLogin();}
 
+function langToggle(){
+  return `<button class="langBtn" onclick="lang=lang==='ja'?'en':'ja';localStorage.setItem('soccer.lang',lang);render()">${lang==="ja"?"EN":"日"}</button>`
+}
 function renderLogin(){
   document.querySelector("#app").innerHTML=`
-    <div class="header"><h1>Soccer Team Manager</h1><div class="small">小学校サッカーチーム管理</div></div>
+    <div class="header"><div class="headerTop"><div><h1>Soccer Team Manager</h1><div class="small">${t("title")}</div></div>${langToggle()}</div></div>
     <div class="card">
-      <h2>ログイン</h2>
-      <div class="notice">試作版です。データはこのiPhone/ブラウザ内に保存されます。チーム全員共有は次段階でサーバー保存にします。</div>
-      <label>チーム名</label><input id="team" value="BBS">
-      <label>パスワード</label><input id="pw" type="password" value="ABC">
+      <h2>${t("login")}</h2>
+      <div class="notice">${lang==="ja"?"試作版です。データはこのiPhone/ブラウザ内に保存されます。チーム全員共有は次段階でサーバー保存にします。":"Prototype: data is saved in this iPhone/browser. Team-wide sharing needs server storage in the next step."}</div>
+      <label>${t("team")}</label><input id="team" value="BBS">
+      <label>${t("password")}</label><input id="pw" type="password" value="ABC">
       <p id="msg" class="danger small"></p>
-      <button class="red" onclick="login()">入る</button>
+      <button class="red" onclick="login()">${t("enter")}</button>
     </div>`;
 }
 function login(){
   if($("team").value.trim()===db.team.name && $("pw").value.trim()===db.team.password){
     localStorage.setItem("soccer.loggedIn","1");session=true;render();
-  }else $("msg").textContent="チーム名またはパスワードが違います。";
+  }else $("msg").textContent=lang==="ja"?"チーム名またはパスワードが違います。":"Wrong team or password.";
 }
-
 function renderApp(){
-  const titles={check:"試合確認",answer:"招集回答",admin:"管理者向け"};
   document.querySelector("#app").innerHTML=`
-    <div class="header"><h1>${titles[page]}</h1><div class="small">チーム：${esc(db.team.name)} / ${db.members.length}名 / ${db.games.length}試合</div></div>
+    <div class="header"><div class="headerTop"><div><h1>${t(page)}</h1><div class="small">${t("team")}：${esc(db.team.name)} / ${db.members.length}${t("people")} / ${db.games.length} games</div></div>${langToggle()}</div></div>
     <main id="main"></main>
     <div class="nav">
-      ${navBtn("check","試合確認")}${navBtn("answer","招集回答")}${navBtn("admin","管理者向け")}
+      ${navBtn("check",t("check"))}${navBtn("answer",t("answer"))}${navBtn("admin",t("admin"))}
     </div>`;
   if(page==="check") checkPage();
   if(page==="answer") answerPage();
   if(page==="admin") adminPage();
 }
-function navBtn(p,t){return `<button class="${page===p?"active":""}" onclick="page='${p}';selectedGameId=null;render()">${t}</button>`}
+function navBtn(p,label){return `<button class="${page===p?"active":""}" onclick="page='${p}';render()">${label}</button>`}
 
-/* 試合確認：ホーム相当。メニューなし。直近試合一覧→詳細1画面 */
+/* 試合確認：名前なし=全部、名前あり=自分の招集試合だけ */
 function checkPage(){
-  const games=[...db.games].filter(g=>isFutureOrToday(g.date)).sort((a,b)=>a.date.localeCompare(b.date));
-  if(selectedGameId){
-    const g=db.games.find(x=>x.id===selectedGameId);
-    if(!g){selectedGameId=null;return checkPage();}
-    $("main").innerHTML=gameDetail(g)+`<button class="secondary" onclick="selectedGameId=null;render()">一覧に戻る</button>`;
-    return;
-  }
+  const games=getVisibleGames();
   $("main").innerHTML=`
     <div class="card">
-      <h2>直近の試合</h2>
-      <div class="small">試合を押すと、LINEにスクショしやすい詳細画面を表示します。</div>
-      ${games.map(g=>`
-        <div class="listItem tap" onclick="selectedGameId='${g.id}';render()">
-          <div class="gameTitle">${esc(g.name)}</div>
-          <div class="small">${esc(g.date)} ${esc(g.time)} / ${esc(g.place)}</div>
-          ${g.uniforms.map(u=>`<span class="badge">${esc(u)}</span>`).join("")}
-        </div>`).join("")||"<div class='small'>未来日の試合はありません。</div>"}
+      <label>${t("selectName")}</label>
+      <select id="filterMember" onchange="currentMemberId=this.value;localStorage.setItem('soccer.currentMemberId',currentMemberId);checkPage()">
+        <option value="">${t("all")}</option>
+        ${db.members.map(m=>`<option value="${m.id}" ${currentMemberId===m.id?"selected":""}>${esc(m.nickname)}（${grade(m.entranceYear)}年）</option>`).join("")}
+      </select>
+    </div>
+    <div class="card">
+      <h2>${t("check")}</h2>
+      <div class="small">${lang==="ja"?"明細を押すと、すーっと詳細が開きます。LINE用スクショに使えます。":"Tap a row to smoothly open details for LINE screenshot."}</div>
+      ${games.map(g=>gameAccordion(g)).join("")||`<div class="small">${t("noGames")}</div>`}
     </div>`;
+}
+function getVisibleGames(){
+  const future=db.games.filter(g=>isFutureOrToday(g.date)).sort((a,b)=>a.date.localeCompare(b.date)||a.startTime.localeCompare(b.startTime));
+  if(!currentMemberId)return future;
+  const calledIds=db.calls.filter(c=>c.memberIds.includes(currentMemberId)).map(c=>c.gameId);
+  return future.filter(g=>calledIds.includes(g.id));
+}
+function gameAccordion(g){
+  const yc=yesCount(g.id), cls=yc<Number(g.minPlayers)?"deficit":"enough";
+  return `<details class="gameDetail ${cls}">
+    <summary>
+      <div class="dayHead">${esc(dayText(g.date))}</div>
+      <div class="gameTitle">${esc(g.name)}</div>
+      <div class="small">${esc(g.date)} ${esc(timeText(g))} / ${esc(g.place)}</div>
+      <div><span class="badge blue">${t("called")} ${calledMembers(g.id).length}${t("people")}</span><span class="badge ${yc<g.minPlayers?"bad":"ok"}">${yc}/${g.minPlayers}</span></div>
+    </summary>
+    <div class="slideBox">${gameDetail(g)}</div>
+  </details>`;
 }
 function gameDetail(g){
   const members=calledMembers(g.id);
   const yes=db.responses.filter(r=>r.gameId===g.id&&r.answer==="参加").map(r=>r.name);
   const hold=db.responses.filter(r=>r.gameId===g.id&&r.answer==="保留").map(r=>r.name);
   const no=db.responses.filter(r=>r.gameId===g.id&&r.answer==="不参加").map(r=>r.name);
+  const un=members.filter(m=>!resFor(g.id,m.id)).map(m=>m.nickname);
   return `
     <div class="card screenShot">
       <h2>${esc(g.name)}</h2>
       <div class="kv">
-        <div>日付</div><div>${esc(g.date)}</div>
-        <div>時間</div><div>${esc(g.time)}</div>
-        <div>場所</div><div>${esc(g.place)}</div>
-        <div>ユニ</div><div>${g.uniforms.map(u=>`<span class="badge">${esc(u)}</span>`).join("")}</div>
+        <div>${t("date")}</div><div>${esc(g.date)}</div>
+        <div>${t("time")}</div><div>${esc(timeText(g))}</div>
+        <div>${t("place")}</div><div>${esc(g.place)}</div>
+        <div>${t("min")}</div><div>${g.minPlayers}${t("people")}</div>
       </div>
-      <h3>招集メンバ</h3>
+      <h3>${t("called")}</h3>
       <div>${members.map(m=>`<span class="badge">${esc(m.nickname)}</span>`).join("")||"<span class='small'>未設定</span>"}</div>
-      <h3>参加状況</h3>
-      <div><span class="badge ok">参加 ${yes.length}</span><span class="badge warn">保留 ${hold.length}</span><span class="badge bad">不参加 ${no.length}</span></div>
-      <h3>持ち物</h3><div class="lineText">${esc(g.items)}</div>
-      <h3>注意事項</h3><div class="lineText">${esc(g.notes)}</div>
+      <h3>${t("status")}</h3>
+      <div><span class="badge ok">${t("yes")} ${yes.length}</span><span class="badge warn">${t("hold")} ${hold.length}</span><span class="badge bad">${t("no")} ${no.length}</span><span class="badge">${t("unanswered")} ${un.length}</span></div>
+      <h3>${t("items")}</h3><div class="lineText">${esc(g.items)}</div>
+      <h3>${t("notes")}</h3><div class="lineText">${esc(g.notes)}</div>
     </div>`;
 }
 
-/* ユーザー向け：名前を選ぶと、やるべきことが出る */
+/* ユーザー向け回答 */
 function answerPage(){
   $("main").innerHTML=`
     <div class="card">
-      <h2>自分の名前を選択</h2>
+      <h2>${t("selectName")}</h2>
       <select id="myMember" onchange="setCurrentMember()">
-        <option value="">選択してください</option>
+        <option value="">${lang==="ja"?"選択してください":"Please select"}</option>
         ${db.members.map(m=>`<option value="${m.id}" ${currentMemberId===m.id?"selected":""}>${esc(m.nickname)}（${grade(m.entranceYear)}年）</option>`).join("")}
       </select>
     </div>
@@ -168,7 +233,7 @@ function setCurrentMember(){
 }
 function renderMyTasks(){
   const box=$("myTasks"); if(!box)return;
-  if(!currentMemberId){box.innerHTML=`<div class="card small">名前を選ぶと、未回答・保留・参加予定が表示されます。</div>`;return;}
+  if(!currentMemberId){box.innerHTML=`<div class="card small">${lang==="ja"?"名前を選ぶと、未回答・保留・参加予定が表示されます。":"Select your name to see pending, hold, and joined games."}</div>`;return;}
   const m=db.members.find(x=>x.id===currentMemberId);
   const calledGameIds=db.calls.filter(c=>c.memberIds.includes(currentMemberId)).map(c=>c.gameId);
   const games=db.games.filter(g=>calledGameIds.includes(g.id)&&isFutureOrToday(g.date)).sort((a,b)=>a.date.localeCompare(b.date));
@@ -176,30 +241,30 @@ function renderMyTasks(){
   const yes=games.filter(g=>resFor(g.id,currentMemberId)?.answer==="参加");
   box.innerHTML=`
     <div class="card">
-      <h2>${esc(m.nickname)}さんが今やること</h2>
-      ${pending.length?pending.map(g=>taskCard(g,m)).join(""):`<div class="notice">未回答・保留の招集はありません。</div>`}
+      <h2>${esc(m.nickname)}${lang==="ja"?"さんが今やること":"'s tasks"}</h2>
+      ${pending.length?pending.map(g=>taskCard(g,m)).join(""):`<div class="notice">${t("noTasks")}</div>`}
     </div>
     <div class="card">
-      <h2>参加表明した試合予定</h2>
-      ${yes.map(g=>miniGameWithAnswer(g,m)).join("")||"<div class='small'>参加予定はありません。</div>"}
+      <h2>${t("joined")}</h2>
+      ${yes.map(g=>miniGameWithAnswer(g,m)).join("")||"<div class='small'>-</div>"}
     </div>`;
 }
 function taskCard(g,m){
   const r=resFor(g.id,m.id);
   return `<div class="listItem">
-    <b>${esc(g.name)}</b><div class="small">${esc(g.date)} ${esc(g.time)} / ${esc(g.place)}</div>
-    <div class="small">現在：${r?esc(r.answer):"未回答"}</div>
+    <b>${esc(g.name)}</b><div class="small">${esc(g.date)} ${esc(timeText(g))} / ${esc(g.place)}</div>
+    <div class="small">${lang==="ja"?"現在":"Current"}：${r?esc(labelAnswer(r.answer)):t("unanswered")}</div>
     <div class="bigAnswer">
-      <button class="yes" onclick="answer('${g.id}','${m.id}','参加')">参加</button>
-      <button class="hold" onclick="answer('${g.id}','${m.id}','保留')">保留</button>
-      <button class="no" onclick="answer('${g.id}','${m.id}','不参加')">不参加</button>
+      <button class="yes" onclick="answer('${g.id}','${m.id}','参加')">${t("yes")}</button>
+      <button class="hold" onclick="answer('${g.id}','${m.id}','保留')">${t("hold")}</button>
+      <button class="no" onclick="answer('${g.id}','${m.id}','不参加')">${t("no")}</button>
     </div>
   </div>`;
 }
+function labelAnswer(a){return a==="参加"?t("yes"):a==="不参加"?t("no"):t("hold")}
 function miniGameWithAnswer(g,m){
   return `<div class="listItem">
-    <b>${esc(g.name)}</b><div class="small">${esc(g.date)} ${esc(g.time)} / ${esc(g.place)}</div>
-    <button class="secondary" onclick="selectedGameId='${g.id}';page='check';render()">詳細を見る</button>
+    <b>${esc(g.name)}</b><div class="small">${esc(g.date)} ${esc(timeText(g))} / ${esc(g.place)}</div>
   </div>`;
 }
 function answer(gameId,memberId,ans){
@@ -209,11 +274,11 @@ function answer(gameId,memberId,ans){
   save();renderMyTasks();
 }
 
-/* 管理者向け：メンバ・試合・招集・テンプレ */
+/* 管理者向け */
 function adminPage(){
   $("main").innerHTML=`
     <div class="tabs">
-      ${adminBtn("games","試合")}${adminBtn("call","招集")}${adminBtn("members","メンバ")}${adminBtn("master","テンプレ")}
+      ${adminBtn("games",t("gameReg"))}${adminBtn("call",t("call"))}${adminBtn("members",t("members"))}${adminBtn("master",t("templates"))}
     </div>
     <div id="adminBody"></div>`;
   if(adminTab==="games") adminGames();
@@ -221,80 +286,74 @@ function adminPage(){
   if(adminTab==="members") adminMembers();
   if(adminTab==="master") adminMaster();
 }
-function adminBtn(t,label){return `<button class="${adminTab===t?"active":""}" onclick="adminTab='${t}';adminPage()">${label}</button>`}
-
-function adminMembers(){
-  $("adminBody").innerHTML=`
-    <div class="card"><h2>メンバ追加</h2>
-      <label>ニックネーム</label><input id="mn" placeholder="例：太郎">
-      <label>入学年</label><input id="ey" type="number" value="${schoolYear()}">
-      <button onclick="addMember()">追加</button>
-    </div>
-    <div class="card"><h2>メンバ一覧</h2>${db.members.map(m=>`
-      <div class="listItem row">
-        <div><b>${esc(m.nickname)}</b><div class="small">入学年 ${m.entranceYear} / ${grade(m.entranceYear)}年生</div></div>
-        <button class="danger fit" onclick="delMember('${m.id}')">削除</button>
-      </div>`).join("")||"<div class='small'>未登録</div>"}</div>`;
-}
-function addMember(){
-  const n=$("mn").value.trim(), y=Number($("ey").value);
-  if(!n||!y)return alert("ニックネームと入学年を入れてください。");
-  db.members.push({id:uid("m"),nickname:n,entranceYear:y});save();adminMembers();
-}
-function delMember(id){
-  if(!confirm("削除しますか？"))return;
-  db.members=db.members.filter(m=>m.id!==id);
-  db.calls.forEach(c=>c.memberIds=c.memberIds.filter(x=>x!==id));
-  db.responses=db.responses.filter(r=>r.memberId!==id);
-  save();adminMembers();
-}
+function adminBtn(tab,label){return `<button class="${adminTab===tab?"active":""}" onclick="adminTab='${tab}';adminPage()">${label}</button>`}
 
 function adminGames(){
   $("adminBody").innerHTML=`
-    <div class="card"><h2>試合追加</h2>
-      <label>日時</label><input id="gd" type="date">
-      <label>場所</label><input id="gp" placeholder="例：第一小学校">
-      <label>試合名</label><input id="gn" placeholder="例：練習試合">
-      <label>時間</label><input id="gt" placeholder="12:00-17:00">
-      <label>ユニフォーム</label><div class="checks">
+    <div class="card"><h2>${t("gameReg")}</h2>
+      <label>${t("date")}</label><input id="gd" type="date">
+      <label>${t("locationTpl")}</label><select id="locSel" onchange="applyLoc()">
+        <option value="">${lang==="ja"?"選択または直接入力":"Select or type"}</option>
+        ${db.masters.locations.map(l=>`<option value="${esc(l.name)}">${esc(l.name)}</option>`).join("")}
+      </select>
+      <input id="gp" placeholder="${t("place")}">
+      <label>${t("gameName")}</label><input id="gn" placeholder="${lang==="ja"?"例：練習試合":"e.g. Friendly match"}">
+      <label>${t("time")}</label><div class="timeRow"><input id="gst" type="time" value="12:00"><span class="small">〜</span><input id="get" type="time" value="17:00"></div>
+      <label>${t("min")}</label><input id="gmin" type="number" value="8">
+      <label>${t("uniform")}</label><div class="checks">
         ${db.masters.uniforms.map(u=>`<label class="check"><input type="checkbox" name="uni" value="${esc(u)}">${esc(u)}</label>`).join("")}
       </div>
-      <label>持ち物テンプレ</label><select id="itemTpl" onchange="applyItemTpl()">
-        ${db.masters.itemTemplates.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("")}
+      <label>${t("items")}</label><select id="itemTpl" onchange="applyItemTpl()">
+        ${db.masters.itemTemplates.map(tpl=>`<option value="${tpl.id}">${esc(tpl.name)}</option>`).join("")}
       </select>
       <textarea id="gi">${esc(db.masters.itemTemplates[0]?.text||"")}</textarea>
-      <label>注意事項テンプレ</label><select id="noteTpl" onchange="applyNoteTpl()">
-        ${db.masters.noteTemplates.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("")}
+      <label>${t("notes")}</label><select id="noteTpl" onchange="applyNoteTpl()">
+        ${db.masters.noteTemplates.map(tpl=>`<option value="${tpl.id}">${esc(tpl.name)}</option>`).join("")}
       </select>
       <textarea id="gno">${esc(db.masters.noteTemplates[0]?.text||"")}</textarea>
-      <button onclick="addGame()">追加</button>
+      <button onclick="addGame()">${t("add")}</button>
     </div>
-    <div class="card"><h2>試合一覧・回答状況</h2>${db.games.map(g=>adminGameRow(g)).join("")||"<div class='small'>未登録</div>"}</div>`;
+    <div class="card"><h2>${t("check")}・${t("status")}</h2>${db.games.sort((a,b)=>a.date.localeCompare(b.date)).map(g=>adminGameRow(g)).join("")||"<div class='small'>未登録</div>"}</div>`;
 }
-function applyItemTpl(){const t=db.masters.itemTemplates.find(x=>x.id===$("itemTpl").value);$("gi").value=t?t.text:"";}
-function applyNoteTpl(){const t=db.masters.noteTemplates.find(x=>x.id===$("noteTpl").value);$("gno").value=t?t.text:"";}
+function applyLoc(){ if($("locSel").value)$("gp").value=$("locSel").value; }
+function applyItemTpl(){const tpl=db.masters.itemTemplates.find(x=>x.id===$("itemTpl").value);$("gi").value=tpl?tpl.text:"";}
+function applyNoteTpl(){const tpl=db.masters.noteTemplates.find(x=>x.id===$("noteTpl").value);$("gno").value=tpl?tpl.text:"";}
 function adminGameRow(g){
   const cm=calledMembers(g.id);
-  const answered=new Set(db.responses.filter(r=>r.gameId===g.id&&r.answer!=="保留").map(r=>r.memberId));
-  const hold=new Set(db.responses.filter(r=>r.gameId===g.id&&r.answer==="保留").map(r=>r.memberId));
-  const noAns=cm.filter(m=>!answered.has(m.id)&&!hold.has(m.id));
-  const yes=db.responses.filter(r=>r.gameId===g.id&&r.answer==="参加").length;
-  const no=db.responses.filter(r=>r.gameId===g.id&&r.answer==="不参加").length;
-  return `<div class="listItem">
-    <b>${esc(g.name)}</b><div class="small">${esc(g.date)} ${esc(g.time)} / ${esc(g.place)}</div>
-    <div><span class="badge ok">参加 ${yes}</span><span class="badge warn">保留 ${hold.size}</span><span class="badge bad">不参加 ${no}</span><span class="badge">未回答 ${noAns.length}</span></div>
-    <div class="small">未回答：${noAns.map(m=>esc(m.nickname)).join("、")||"なし"}</div>
-    <div class="row"><button class="secondary" onclick="selectedGameId='${g.id}';page='check';render()">詳細</button><button class="danger" onclick="delGame('${g.id}')">削除</button></div>
+  const yes=db.responses.filter(r=>r.gameId===g.id&&r.answer==="参加");
+  const no=db.responses.filter(r=>r.gameId===g.id&&r.answer==="不参加");
+  const hold=db.responses.filter(r=>r.gameId===g.id&&r.answer==="保留");
+  const answeredIds=new Set([...yes,...no,...hold].map(r=>r.memberId));
+  const noAns=cm.filter(m=>!answeredIds.has(m.id));
+  const insufficient=yes.length<Number(g.minPlayers);
+  return `<div class="listItem ${insufficient?"deficit":"enough"}">
+    <div class="dayHead">${esc(dayText(g.date))}</div>
+    <b>${esc(g.name)}</b>
+    <div class="small">${esc(g.date)} ${esc(timeText(g))} / ${esc(g.place)}</div>
+    <div><span class="badge blue">${t("called")} ${cm.length}${t("people")}</span><span class="badge ${insufficient?"bad":"ok"}">${yes.length}/${g.minPlayers} ${insufficient?t("insufficient"):t("enough")}</span></div>
+    <div><span class="badge ok">${t("yes")} ${yes.length}</span><span class="badge warn">${t("hold")} ${hold.length}</span><span class="badge bad">${t("no")} ${no.length}</span><span class="badge">${t("unanswered")} ${noAns.length}</span></div>
+    ${noAns.map(m=>`<div class="row"><div class="small">${t("unanswered")}：${esc(m.nickname)}</div><button class="secondary mini fit" onclick="noticeMsg('${g.id}','${m.id}')">${t("noticeMsg")}</button></div>`).join("")}
+    <div class="row"><button class="secondary" onclick="page='check';currentMemberId='';localStorage.setItem('soccer.currentMemberId','');render()">${t("detail")}</button><button class="danger" onclick="delGame('${g.id}')">${t("delete")}</button></div>
   </div>`;
+}
+function noticeMsg(gid,mid){
+  const g=db.games.find(x=>x.id===gid), m=db.members.find(x=>x.id===mid);
+  const msg=lang==="ja"
+    ? `${m.nickname}さん、${g.date} ${timeText(g)}「${g.name}」（${g.place}）の招集回答が未回答です。参加・保留・不参加の回答をお願いします。`
+    : `${m.nickname}, please reply to the call-up for "${g.name}" on ${g.date} ${timeText(g)} at ${g.place}.`;
+  navigator.clipboard?.writeText(msg);
+  alert((lang==="ja"?"LINEに貼れる文面をコピーしました：\n\n":"Message copied:\n\n")+msg);
 }
 function addGame(){
   const uniforms=[...document.querySelectorAll("input[name=uni]:checked")].map(x=>x.value);
-  const g={id:uid("g"),date:$("gd").value,place:$("gp").value.trim(),name:$("gn").value.trim(),time:$("gt").value.trim(),uniforms,items:$("gi").value.trim(),notes:$("gno").value.trim()};
-  if(!g.date||!g.place||!g.name||!g.time)return alert("日時、場所、試合名、時間は必須です。");
+  const place=$("gp").value.trim();
+  const g={id:uid("g"),date:$("gd").value,place,name:$("gn").value.trim(),startTime:$("gst").value,endTime:$("get").value,minPlayers:Number($("gmin").value)||8,uniforms,items:$("gi").value.trim(),notes:$("gno").value.trim()};
+  if(!g.date||!g.place||!g.name||!g.startTime||!g.endTime)return alert(lang==="ja"?"日付、場所、試合名、時間は必須です。":"Date, place, game name, and time are required.");
+  if(!db.masters.locations.some(l=>l.name===place))db.masters.locations.push({id:uid("loc"),name:place});
   db.games.push(g);save();adminGames();
 }
 function delGame(id){
-  if(!confirm("試合を削除しますか？関連する招集・回答も消えます。"))return;
+  if(!confirm(lang==="ja"?"試合を削除しますか？関連する招集・回答も消えます。":"Delete this game?"))return;
   db.games=db.games.filter(g=>g.id!==id);
   db.calls=db.calls.filter(c=>c.gameId!==id);
   db.responses=db.responses.filter(v=>v.gameId!==id);
@@ -304,94 +363,130 @@ function delGame(id){
 function adminCall(){
   const options=db.games.map(g=>`<option value="${g.id}">${esc(gameLabel(g))}</option>`).join("");
   $("adminBody").innerHTML=`
-    <div class="card"><h2>試合招集</h2>
-      <label>試合</label><select id="cg" onchange="renderCallMembers()">${options}</select>
-      <label>学年で絞る</label><select id="gradeFilter" onchange="renderCallMembers()">
-        <option value="">全員</option>${[1,2,3,4,5,6].map(g=>`<option value="${g}">${g}年生</option>`).join("")}
-      </select>
+    <div class="card"><h2>${t("call")}</h2>
+      <label>${t("gameName")}</label><select id="cg" onchange="initCallSelection();renderCallMembers()">${options}</select>
+      <label>${t("gradeAdd")}</label>
+      <div class="grid3">${[1,2,3,4,5,6].map(g=>`<button class="secondary" onclick="addGrade(${g})">${g}${lang==="ja"?"年":"G"}</button>`).join("")}</div>
       <div id="callMembers"></div>
-      <button onclick="saveCall()">招集を保存</button>
+      <button onclick="saveCall()">${t("save")}</button>
     </div>
-    <div class="card"><h2>招集・未回答一覧</h2>${db.games.map(g=>callStatusRow(g)).join("")}</div>`;
+    <div class="card"><h2>${t("call")}・${t("unanswered")}</h2>${db.games.map(g=>callStatusRow(g)).join("")}</div>`;
+  initCallSelection();renderCallMembers();
+}
+function initCallSelection(){
+  const gid=$("cg")?.value;if(!gid)return;
+  callSelection=new Set(callFor(gid).memberIds);
+}
+function addGrade(g){
+  db.members.filter(m=>grade(m.entranceYear)===g).forEach(m=>callSelection.add(m.id));
   renderCallMembers();
 }
+function toggleCallMember(id,checked){
+  checked?callSelection.add(id):callSelection.delete(id);
+}
 function renderCallMembers(){
-  const gid=$("cg")?.value;if(!gid)return;
-  const gf=$("gradeFilter").value;
-  const c=callFor(gid);
-  const selected=new Set(c.memberIds);
-  const ms=db.members.filter(m=>!gf||grade(m.entranceYear)===Number(gf));
-  $("callMembers").innerHTML=`<h3>メンバ選択</h3>${ms.map(m=>`
-    <label class="check"><input type="checkbox" name="callMember" value="${m.id}" ${selected.has(m.id)?"checked":""}>${esc(m.nickname)} <span class="small">${grade(m.entranceYear)}年</span></label>`).join("")||"<div class='small'>対象者なし</div>"}`;
+  const box=$("callMembers"); if(!box)return;
+  box.innerHTML=`<h3>${t("memberSelect")}</h3>${db.members.map(m=>`
+    <label class="check"><input type="checkbox" value="${m.id}" ${callSelection.has(m.id)?"checked":""} onchange="toggleCallMember('${m.id}',this.checked)">${esc(m.nickname)} <span class="small">${grade(m.entranceYear)}年</span></label>`).join("")}`;
 }
 function saveCall(){
   const gid=$("cg").value;
-  const ids=[...document.querySelectorAll("input[name=callMember]:checked")].map(x=>x.value);
   db.calls=db.calls.filter(c=>c.gameId!==gid);
-  db.calls.push({gameId:gid,memberIds:ids});save();adminCall();
+  db.calls.push({gameId:gid,memberIds:[...callSelection]});save();adminCall();
 }
 function callStatusRow(g){
   const cm=calledMembers(g.id);
   const un=cm.filter(m=>!resFor(g.id,m.id));
   const hold=cm.filter(m=>resFor(g.id,m.id)?.answer==="保留");
   return `<div class="listItem">
-    <b>${esc(g.name)}</b><div class="small">招集 ${cm.length}名 / 未回答 ${un.length}名 / 保留 ${hold.length}名</div>
-    <div class="small">未回答：${un.map(m=>esc(m.nickname)).join("、")||"なし"}</div>
-    <div class="small">保留：${hold.map(m=>esc(m.nickname)).join("、")||"なし"}</div>
+    <b>${esc(g.name)}</b><div class="small">${t("called")} ${cm.length}${t("people")} / ${t("unanswered")} ${un.length}${t("people")} / ${t("hold")} ${hold.length}${t("people")}</div>
+    ${un.map(m=>`<div class="row"><div class="small">${esc(m.nickname)}</div><button class="secondary mini fit" onclick="noticeMsg('${g.id}','${m.id}')">${t("noticeMsg")}</button></div>`).join("")||"<div class='small'>-</div>"}
   </div>`;
+}
+
+function adminMembers(){
+  $("adminBody").innerHTML=`
+    <div class="card"><h2>${t("members")}</h2>
+      <label>${lang==="ja"?"ニックネーム":"Nickname"}</label><input id="mn" placeholder="例：太郎">
+      <label>${lang==="ja"?"入学年":"Entrance year"}</label><input id="ey" type="number" value="${schoolYear()}">
+      <button onclick="addMember()">${t("add")}</button>
+    </div>
+    <div class="card"><h2>${lang==="ja"?"メンバ一覧":"Member list"}</h2>${db.members.map(m=>`
+      <div class="listItem row">
+        <div><b>${esc(m.nickname)}</b><div class="small">${m.entranceYear} / ${grade(m.entranceYear)}年</div></div>
+        <button class="danger fit" onclick="delMember('${m.id}')">${t("delete")}</button>
+      </div>`).join("")||"<div class='small'>-</div>"}</div>`;
+}
+function addMember(){
+  const n=$("mn").value.trim(), y=Number($("ey").value);
+  if(!n||!y)return alert(lang==="ja"?"ニックネームと入学年を入れてください。":"Enter nickname and entrance year.");
+  db.members.push({id:uid("m"),nickname:n,entranceYear:y});save();adminMembers();
+}
+function delMember(id){
+  if(!confirm(lang==="ja"?"削除しますか？":"Delete?"))return;
+  db.members=db.members.filter(m=>m.id!==id);
+  db.calls.forEach(c=>c.memberIds=c.memberIds.filter(x=>x!==id));
+  db.responses=db.responses.filter(r=>r.memberId!==id);
+  save();adminMembers();
 }
 
 function adminMaster(){
   $("adminBody").innerHTML=`
-    <div class="card"><h2>ユニフォーム</h2>
-      <label>候補（カンマ区切り）</label><input id="mu" value="${esc(db.masters.uniforms.join(","))}">
-      <button onclick="saveUniforms()">保存</button>
+    <div class="card"><h2>${t("uniform")}</h2>
+      <label>${lang==="ja"?"候補（カンマ区切り）":"Options separated by comma"}</label><input id="mu" value="${esc(db.masters.uniforms.join(","))}">
+      <button onclick="saveUniforms()">${t("save")}</button>
     </div>
-    <div class="card"><h2>持ち物テンプレ追加</h2>
-      <label>テンプレ名</label><input id="itn" placeholder="例：遠征セット">
-      <label>内容</label><textarea id="itt"></textarea>
-      <button onclick="addTpl('item')">追加</button>
-      ${db.masters.itemTemplates.map(t=>tplRow("item",t)).join("")}
+    <div class="card"><h2>${t("locationTpl")}</h2>
+      <label>${lang==="ja"?"場所名":"Location name"}</label><input id="ln" placeholder="例：第一小学校">
+      <button onclick="addLoc()">${t("add")}</button>
+      ${db.masters.locations.map(l=>`<div class="listItem row"><div>${esc(l.name)}</div><button class="danger fit" onclick="delLoc('${l.id}')">${t("delete")}</button></div>`).join("")}
     </div>
-    <div class="card"><h2>注意事項テンプレ追加</h2>
-      <label>テンプレ名</label><input id="ntn" placeholder="例：車移動注意">
-      <label>内容</label><textarea id="ntt"></textarea>
-      <button onclick="addTpl('note')">追加</button>
-      ${db.masters.noteTemplates.map(t=>tplRow("note",t)).join("")}
+    <div class="card"><h2>${t("items")}</h2>
+      <label>${lang==="ja"?"テンプレ名":"Template name"}</label><input id="itn" placeholder="例：遠征セット">
+      <label>${lang==="ja"?"内容":"Text"}</label><textarea id="itt"></textarea>
+      <button onclick="addTpl('item')">${t("add")}</button>
+      ${db.masters.itemTemplates.map(tpl=>tplRow("item",tpl)).join("")}
     </div>
-    <div class="card"><h2>データ操作</h2>
-      <button class="secondary" onclick="exportData()">データをJSON表示</button><br><br>
-      <button class="danger" onclick="resetData()">サンプルに戻す</button><br><br>
-      <button class="secondary" onclick="localStorage.removeItem('soccer.loggedIn');session=false;render()">ログアウト</button>
+    <div class="card"><h2>${t("notes")}</h2>
+      <label>${lang==="ja"?"テンプレ名":"Template name"}</label><input id="ntn" placeholder="例：車移動注意">
+      <label>${lang==="ja"?"内容":"Text"}</label><textarea id="ntt"></textarea>
+      <button onclick="addTpl('note')">${t("add")}</button>
+      ${db.masters.noteTemplates.map(tpl=>tplRow("note",tpl)).join("")}
+    </div>
+    <div class="card"><h2>${lang==="ja"?"データ操作":"Data"}</h2>
+      <button class="secondary" onclick="exportData()">${t("dataJson")}</button><br><br>
+      <button class="danger" onclick="resetData()">${t("sampleReset")}</button><br><br>
+      <button class="secondary" onclick="localStorage.removeItem('soccer.loggedIn');session=false;render()">${t("logout")}</button>
     </div>`;
 }
 function saveUniforms(){db.masters.uniforms=$("mu").value.split(",").map(x=>x.trim()).filter(Boolean);save();adminMaster();}
-function tplRow(kind,t){
-  return `<div class="listItem"><b>${esc(t.name)}</b><div class="lineText">${esc(t.text)}</div>
-    <button class="danger" onclick="delTpl('${kind}','${t.id}')">削除</button></div>`;
+function addLoc(){const name=$("ln").value.trim(); if(!name)return; db.masters.locations.push({id:uid("loc"),name});save();adminMaster();}
+function delLoc(id){if(db.masters.locations.length<=1)return alert("最低1つ必要です。"); db.masters.locations=db.masters.locations.filter(x=>x.id!==id);save();adminMaster();}
+function tplRow(kind,tpl){
+  return `<div class="listItem"><b>${esc(tpl.name)}</b><div class="lineText">${esc(tpl.text)}</div>
+    <button class="danger" onclick="delTpl('${kind}','${tpl.id}')">${t("delete")}</button></div>`;
 }
 function addTpl(kind){
   const name=$(kind==="item"?"itn":"ntn").value.trim();
   const text=$(kind==="item"?"itt":"ntt").value.trim();
-  if(!name||!text)return alert("テンプレ名と内容を入れてください。");
+  if(!name||!text)return alert(lang==="ja"?"テンプレ名と内容を入れてください。":"Enter template name and text.");
   const arr=kind==="item"?db.masters.itemTemplates:db.masters.noteTemplates;
   arr.push({id:uid(kind==="item"?"it":"nt"),name,text});save();adminMaster();
 }
 function delTpl(kind,id){
   const arr=kind==="item"?db.masters.itemTemplates:db.masters.noteTemplates;
-  if(arr.length<=1)return alert("テンプレは最低1つ必要です。");
-  if(!confirm("削除しますか？"))return;
-  if(kind==="item")db.masters.itemTemplates=db.masters.itemTemplates.filter(t=>t.id!==id);
-  else db.masters.noteTemplates=db.masters.noteTemplates.filter(t=>t.id!==id);
+  if(arr.length<=1)return alert(lang==="ja"?"テンプレは最低1つ必要です。":"At least one template is required.");
+  if(!confirm(lang==="ja"?"削除しますか？":"Delete?"))return;
+  if(kind==="item")db.masters.itemTemplates=db.masters.itemTemplates.filter(tpl=>tpl.id!==id);
+  else db.masters.noteTemplates=db.masters.noteTemplates.filter(tpl=>tpl.id!==id);
   save();adminMaster();
 }
-
 function exportData(){
   const w=window.open("","_blank");
   w.document.write("<pre>"+esc(JSON.stringify(db,null,2))+"</pre>");
 }
 function resetData(){
-  if(!confirm("保存済みデータをサンプルに戻しますか？"))return;
+  if(!confirm(lang==="ja"?"保存済みデータをサンプルに戻しますか？":"Reset saved data to sample?"))return;
   db=structuredClone(sampleData);save();render();
 }
 render();
