@@ -1,7 +1,30 @@
 <!doctype html>
 <html>
+<head>
+  <meta charset="utf-8">
+  <title>Soccer Login</title>
+</head>
 <body>
-  <h1>Hello World</h1>
-  <p>Soccer Management is online.</p>
+  <h1>Soccer Management Login</h1>
+
+  <div id="loginBox">
+    <p>Team Name</p>
+    <input id="teamName" type="text">
+
+    <p>Password</p>
+    <input id="password" type="password">
+
+    <br><br>
+    <button onclick="login()">Login</button>
+
+    <p id="msg"></p>
+  </div>
+
+  <div id="mainApp" style="display:none;">
+    <h2>Welcome!</h2>
+    <p>You are logged in.</p>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
